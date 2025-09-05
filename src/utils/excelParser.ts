@@ -1,6 +1,59 @@
 import * as XLSX from 'xlsx';
 import { InvoiceRow, PackingListRow } from '../types';
 
+export const getFilePreview = async (file: File): Promise<{ 
+  headers: string[]; 
+  sampleRows: any[][]; 
+  totalRows: number; 
+  dataStartRow: number;
+  columnInfo: { [key: number]: { hasData: boolean; sampleValues: string[] } };
+}> => {
+  const rawData = await parseExcelFile(file);
+  
+  // Find where actual data starts (skip empty rows)
+  let dataStartRow = 1;
+  for (let i = 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    if (row && row.some(cell => cell !== null && cell !== undefined && cell !== '')) {
+      dataStartRow = i;
+      break;
+    }
+  }
+  
+  const headers = rawData[0] || [];
+  const dataRows = rawData.slice(dataStartRow);
+  const sampleRows = dataRows.slice(0, 10); // Show more rows for better preview
+  
+  // Analyze column data to show which columns have actual data
+  const columnInfo: { [key: number]: { hasData: boolean; sampleValues: string[] } } = {};
+  
+  for (let colIndex = 0; colIndex < Math.min(headers.length, 20); colIndex++) {
+    const values: string[] = [];
+    let hasData = false;
+    
+    for (let rowIndex = 0; rowIndex < Math.min(dataRows.length, 20); rowIndex++) {
+      const cell = dataRows[rowIndex]?.[colIndex];
+      if (cell !== null && cell !== undefined && cell !== '') {
+        hasData = true;
+        const cellStr = cell.toString().trim();
+        if (cellStr && values.length < 3) {
+          values.push(cellStr);
+        }
+      }
+    }
+    
+    columnInfo[colIndex] = { hasData, sampleValues: values };
+  }
+  
+  return {
+    headers,
+    sampleRows,
+    totalRows: dataRows.length,
+    dataStartRow,
+    columnInfo
+  };
+};
+
 export const parseExcelFile = (file: File): Promise<any[]> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -23,43 +76,98 @@ export const parseExcelFile = (file: File): Promise<any[]> => {
   });
 };
 
-export const parseInvoiceData = (rawData: any[]): InvoiceRow[] => {
+export const parseInvoiceData = (rawData: any[], hsCodeColumns: number[], amountColumns: number[]): InvoiceRow[] => {
   if (rawData.length < 2) return [];
   
-  const headers = rawData[0];
-  const hsCodeIndex = 5; // Column F (0-indexed)
-  const amountIndexO = 14; // Column O (0-indexed)
-  const amountIndexP = 15; // Column P (0-indexed)
+  // Find where actual data starts (skip empty rows)
+  let dataStartRow = 1;
+  for (let i = 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    if (row && row.some(cell => cell !== null && cell !== undefined && cell !== '')) {
+      dataStartRow = i;
+      break;
+    }
+  }
   
-  return rawData.slice(1).map(row => ({
-    hsCode: row[hsCodeIndex]?.toString()?.trim() || '',
-    amount: parseFloat(row[amountIndexP]) || parseFloat(row[amountIndexO]) || 0,
-    rowData: row
-  })).filter(item => item.hsCode);
-};
-
-export const parsePackingListData = (rawData: any[]): PackingListRow[] => {
-  if (rawData.length < 2) return [];
-  
-  const headers = rawData[0];
-  const cartonsIndex = 7; // Column H (0-indexed)
-  const netWeightIndex = 11; // Column L (0-indexed)
-  const grossWeightIndex = 12; // Column M (0-indexed)
-  
-  return rawData.slice(1).map(row => {
-    const hsCode = row[5]?.toString()?.trim() || ''; // Assuming HS code is also in column F
-    const cartonsStr = row[cartonsIndex]?.toString() || '0';
-    const netWeightStr = row[netWeightIndex]?.toString() || '0';
-    const grossWeightStr = row[grossWeightIndex]?.toString() || '0';
+  return rawData.slice(dataStartRow).map((row, index) => {
+    // Get HS code from the first specified column that has data
+    let hsCode = '';
+    for (const colIndex of hsCodeColumns) {
+      const value = row[colIndex]?.toString()?.trim();
+      if (value) {
+        hsCode = value;
+        break;
+      }
+    }
+    
+    // Sum amounts from all specified columns
+    let amount = 0;
+    for (const colIndex of amountColumns) {
+      const value = parseFloat(row[colIndex]) || 0;
+      amount += value;
+    }
     
     return {
       hsCode,
-      cartons: parseMultiValue(cartonsStr),
-      netWeight: parseMultiValue(netWeightStr),
-      grossWeight: parseMultiValue(grossWeightStr),
+      amount,
       rowData: row
     };
-  }).filter(item => item.hsCode);
+  }).filter(item => item.hsCode && item.amount > 0);
+};
+
+export const parsePackingListData = (rawData: any[], hsCodeColumns: number[], cartonsColumns: number[], netWeightColumns: number[], grossWeightColumns: number[]): PackingListRow[] => {
+  if (rawData.length < 2) return [];
+  
+  // Find where actual data starts (skip empty rows)
+  let dataStartRow = 1;
+  for (let i = 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    if (row && row.some(cell => cell !== null && cell !== undefined && cell !== '')) {
+      dataStartRow = i;
+      break;
+    }
+  }
+  
+  return rawData.slice(dataStartRow).map((row, index) => {
+    // Get HS code from the first specified column that has data
+    let hsCode = '';
+    for (const colIndex of hsCodeColumns) {
+      const value = row[colIndex]?.toString()?.trim();
+      if (value) {
+        hsCode = value;
+        break;
+      }
+    }
+    
+    // Sum cartons from all specified columns
+    let cartons = 0;
+    for (const colIndex of cartonsColumns) {
+      const value = row[colIndex]?.toString() || '0';
+      cartons += parseMultiValue(value);
+    }
+    
+    // Sum net weight from all specified columns
+    let netWeight = 0;
+    for (const colIndex of netWeightColumns) {
+      const value = row[colIndex]?.toString() || '0';
+      netWeight += parseMultiValue(value);
+    }
+    
+    // Sum gross weight from all specified columns
+    let grossWeight = 0;
+    for (const colIndex of grossWeightColumns) {
+      const value = row[colIndex]?.toString() || '0';
+      grossWeight += parseMultiValue(value);
+    }
+    
+    return {
+      hsCode,
+      cartons,
+      netWeight,
+      grossWeight,
+      rowData: row
+    };
+  }).filter(item => item.hsCode && (item.cartons > 0 || item.netWeight > 0 || item.grossWeight > 0));
 };
 
 const parseMultiValue = (value: string): number => {

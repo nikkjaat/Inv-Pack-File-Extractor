@@ -15,7 +15,7 @@ export const Header: React.FC = () => {
               Excel Data Analyzer
             </h1>
             <p className="text-gray-600 mt-1">
-              Calculate gross weight, net weight, and carton counts by HS code
+              Upload Excel files to calculate gross weight, net weight, and carton counts by HS code
             </p>
           </div>
         </div>

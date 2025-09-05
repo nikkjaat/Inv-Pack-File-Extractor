@@ -1,11 +1,12 @@
-import { InvoiceRow, PackingListRow, ProcessedData } from '../types';
+import { InvoiceRow, PackingListRow, ProcessedData, DetailedRow } from '../types';
+import * as XLSX from 'xlsx';
 
 export const processData = (
   invoiceData: InvoiceRow[],
   packingListData: PackingListRow[]
-): ProcessedData[] => {
+): { summary: ProcessedData[], detailed: DetailedRow[] } => {
   // Step 1: Process line by line - each invoice line matches with corresponding packing list line
-  const lineByLineData: ProcessedData[] = [];
+  const lineByLineData: DetailedRow[] = [];
   
   invoiceData.forEach((invoiceRow, index) => {
     // Find corresponding packing list row at the same line index
@@ -13,11 +14,12 @@ export const processData = (
     
     if (packingListRow && invoiceRow.hsCode) {
       lineByLineData.push({
+        lineNumber: index + 1,
         hsCode: invoiceRow.hsCode,
-        totalAmount: invoiceRow.amount,
-        totalGrossWeight: packingListRow.grossWeight,
-        totalNetWeight: packingListRow.netWeight,
-        totalCartons: packingListRow.cartons
+        invoiceAmount: invoiceRow.amount,
+        grossWeight: packingListRow.grossWeight,
+        netWeight: packingListRow.netWeight,
+        cartons: packingListRow.cartons
       });
     }
   });
@@ -30,34 +32,39 @@ export const processData = (
     
     if (existing) {
       // Add to existing HS code
-      existing.totalAmount += row.totalAmount;
-      existing.totalGrossWeight += row.totalGrossWeight;
-      existing.totalNetWeight += row.totalNetWeight;
-      existing.totalCartons += row.totalCartons;
+      existing.totalAmount += row.invoiceAmount;
+      existing.totalGrossWeight += row.grossWeight;
+      existing.totalNetWeight += row.netWeight;
+      existing.totalCartons += row.cartons;
+      existing.lineCount += 1;
     } else {
       // Create new entry for this HS code
       hsCodeMap.set(row.hsCode, {
         hsCode: row.hsCode,
-        totalAmount: row.totalAmount,
-        totalGrossWeight: row.totalGrossWeight,
-        totalNetWeight: row.totalNetWeight,
-        totalCartons: row.totalCartons
+        totalAmount: row.invoiceAmount,
+        totalGrossWeight: row.grossWeight,
+        totalNetWeight: row.netWeight,
+        totalCartons: row.cartons,
+        lineCount: 1
       });
     }
   });
   
   // Convert map to array and sort by HS code
-  return Array.from(hsCodeMap.values()).sort((a, b) => a.hsCode.localeCompare(b.hsCode));
+  const summary = Array.from(hsCodeMap.values()).sort((a, b) => a.hsCode.localeCompare(b.hsCode));
+  
+  return { summary, detailed: lineByLineData };
 };
 
 export const exportToCSV = (data: ProcessedData[]): string => {
-  const headers = ['HS Code', 'Total Amount', 'Total Gross Weight', 'Total Net Weight', 'Total Cartons'];
+  const headers = ['HS Code', 'Total Invoice Amount', 'Total Gross Weight', 'Total Net Weight', 'Total Cartons', 'Line Count'];
   const rows = data.map(row => [
     row.hsCode,
     row.totalAmount.toFixed(2),
     row.totalGrossWeight.toFixed(2),
     row.totalNetWeight.toFixed(2),
-    row.totalCartons.toString()
+    row.totalCartons.toString(),
+    row.lineCount.toString()
   ]);
   
   const csvContent = [headers, ...rows]
@@ -65,4 +72,38 @@ export const exportToCSV = (data: ProcessedData[]): string => {
     .join('\n');
   
   return csvContent;
+};
+
+export const exportToExcel = (summaryData: ProcessedData[], detailedData: DetailedRow[]): void => {
+  // Create workbook
+  const workbook = XLSX.utils.book_new();
+  
+  // Summary sheet
+  const summaryHeaders = ['HS Code', 'Total Invoice Amount', 'Total Gross Weight', 'Total Net Weight', 'Total Cartons', 'Line Count'];
+  const summaryRows = summaryData.map(row => [
+    row.hsCode,
+    row.totalAmount,
+    row.totalGrossWeight,
+    row.totalNetWeight,
+    row.totalCartons,
+    row.lineCount
+  ]);
+  const summarySheet = XLSX.utils.aoa_to_sheet([summaryHeaders, ...summaryRows]);
+  XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary by HS Code');
+  
+  // Detailed sheet
+  const detailedHeaders = ['Line Number', 'HS Code', 'Invoice Amount', 'Gross Weight', 'Net Weight', 'Cartons'];
+  const detailedRows = detailedData.map(row => [
+    row.lineNumber,
+    row.hsCode,
+    row.invoiceAmount,
+    row.grossWeight,
+    row.netWeight,
+    row.cartons
+  ]);
+  const detailedSheet = XLSX.utils.aoa_to_sheet([detailedHeaders, ...detailedRows]);
+  XLSX.utils.book_append_sheet(workbook, detailedSheet, 'Line by Line Details');
+  
+  // Export file
+  XLSX.writeFile(workbook, 'hs-code-analysis.xlsx');
 };

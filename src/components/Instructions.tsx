@@ -12,21 +12,21 @@ export const Instructions: React.FC = () => {
             <div className="flex items-start space-x-2">
               <FileText className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <p>
-                <strong>Invoice File:</strong> HS codes from Column F and amounts from Column O or P (line by line)
+                <strong>Invoice File:</strong> Upload Excel files (.xlsx or .xls) with HS codes in Column F and amounts in Column O or P (system checks P first, then O as fallback).
               </p>
             </div>
             <div className="flex items-start space-x-2">
               <Package className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <p>
-                <strong>Packing List:</strong> For each invoice line, corresponding data is extracted 
+                <strong>Packing List:</strong> Upload Excel files (.xlsx or .xls). For each invoice line, corresponding data is extracted 
                 from the same line number - Column H (cartons), Column L (net weight), Column M (gross weight)
               </p>
             </div>
             <div className="flex items-start space-x-2">
               <Calculator className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <p>
-                <strong>Processing:</strong> Line-by-line matching extracts data from corresponding rows. 
-                Then, all data is grouped by HS code and summed - each HS code appears only once with total amounts, weights, and cartons.
+                <strong>Processing:</strong> Line-by-line matching extracts data from corresponding rows with smart amount detection. 
+                Data is then grouped by HS code and summed - each HS code appears only once with total amounts, weights, cartons, and line count.
               </p>
             </div>
           </div>
